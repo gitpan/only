@@ -1,39 +1,70 @@
-# $File: //depot/cpan/Module-Install/lib/Module/Install.pm $ $Author: autrijus $
-# $Revision: #42 $ $Change: 1359 $ $DateTime: 2003/03/11 01:49:03 $ vim: expandtab shiftwidth=4
-
+#line 1 "inc/Module/Install.pm - /Users/ingy/local/lib/perl5/site_perl/5.8.6/Module/Install.pm"
 package Module::Install;
-$VERSION = '0.20';
+$VERSION = '0.36';
+
+die << "." unless $INC{join('/', inc => split(/::/, __PACKAGE__)).'.pm'};
+Please invoke ${\__PACKAGE__} with:
+
+    use inc::${\__PACKAGE__};
+
+not:
+
+    use ${\__PACKAGE__};
+
+.
 
 use strict 'vars';
-use File::Find;
+use Cwd ();
+use File::Find ();
+use File::Path ();
 
 @inc::Module::Install::ISA = 'Module::Install';
+*inc::Module::Install::VERSION = *VERSION;
+
+#line 129
 
 sub import {
-    my $class = $_[0];
-    my $self = $class->new(@_[1..$#_]);
+    my $class = shift;
+    my $self = $class->new(@_);
 
-    unless (-f $self->{file}) {
+    if (not -f $self->{file}) {
         require "$self->{path}/$self->{dispatch}.pm";
-        ($self->{admin} ||=
-            "$self->{name}::$self->{dispatch}"->new(_top => $self)
-        )->init;
+        File::Path::mkpath("$self->{prefix}/$self->{author}");
+        $self->{admin} = 
+          "$self->{name}::$self->{dispatch}"->new(_top => $self);
+        $self->{admin}->init;
         @_ = ($class, _self => $self);
         goto &{"$self->{name}::import"};
     }
 
     *{caller(0) . "::AUTOLOAD"} = $self->autoload;
+
+    # Unregister loader and worker packages so subdirs can use them again
+    delete $INC{"$self->{file}"};
+    delete $INC{"$self->{path}.pm"};
 }
+
+#line 156
 
 sub autoload {
     my $self = shift;
     my $caller = caller;
-    sub {
-        ${"$caller\::AUTOLOAD"} =~ /([^:]+)$/ or die "Cannot autoload $caller";
+
+    my $cwd = Cwd::cwd();
+    my $sym = "$caller\::AUTOLOAD";
+
+    $sym->{$cwd} = sub {
+        my $pwd = Cwd::cwd();
+        if (my $code = $sym->{$pwd}) {
+            goto &$code unless $cwd eq $pwd; # delegate back to parent dirs
+        }
+        $$sym =~ /([^:]+)$/ or die "Cannot autoload $caller";
         unshift @_, ($self, $1);
         goto &{$self->can('call')} unless uc($1) eq $1;
     };
 }
+
+#line 181
 
 sub new {
     my ($class, %args) = @_;
@@ -42,19 +73,23 @@ sub new {
 
     $args{dispatch} ||= 'Admin';
     $args{prefix}   ||= 'inc';
-    $args{bundle}   ||= '_bundle';
+    $args{author}   ||= '.author';
+    $args{bundle}   ||= 'inc/BUNDLES';
 
     $class =~ s/^\Q$args{prefix}\E:://;
     $args{name}     ||= $class;
     $args{version}  ||= $class->VERSION;
+
     unless ($args{path}) {
-        $args{path}   = $args{name};
+        $args{path}  = $args{name};
         $args{path}  =~ s!::!/!g;
     }
     $args{file}     ||= "$args{prefix}/$args{path}.pm";
 
     bless(\%args, $class);
 }
+
+#line 210
 
 sub call {
     my $self   = shift;
@@ -64,6 +99,8 @@ sub call {
     unshift @_, $obj;
     goto &{$obj->can($method)};
 }
+
+#line 225
 
 sub load {
     my ($self, $method) = @_;
@@ -87,6 +124,8 @@ END
     $obj;
 }
 
+#line 255
+
 sub load_extensions {
     my ($self, $path, $top_obj) = @_;
 
@@ -99,16 +138,18 @@ sub load_extensions {
         next if $self->{pathnames}{$pkg};
 
         eval { require $file; 1 } or (warn($@), next);
-        $self->{pathnames}{$pkg} = $INC{$file};
+        $self->{pathnames}{$pkg} = delete $INC{$file};
         push @{$self->{extensions}}, $pkg->new( _top => $top_obj );
     }
 }
+
+#line 279
 
 sub find_extensions {
     my ($self, $path) = @_;
     my @found;
 
-    find(sub {
+    File::Find::find(sub {
         my $file = $File::Find::name;
         return unless $file =~ m!^\Q$path\E/(.+)\.pm\Z!is;
         return if $1 eq $self->{dispatch};
@@ -125,3 +166,4 @@ sub find_extensions {
 
 __END__
 
+#line 617

@@ -1,5 +1,12 @@
 # Revision history for Perl extension only.
 
+---
+version: 0.27
+date:    Tue Mar 15 08:52:11 PST 2005
+cahnges:
+  - Damian's patch for x.x.x versions
+  - Alias told me to dump $DEBUG::single
+---
 version: 0.26
 date:    Sun Mar  2 21:22:26 PST 2003
 cahnges:

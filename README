@@ -1,4 +1,4 @@
-only version 0.26
+only version 0.27
 =====================
 
 The only.pm module allows you to install many different versions of a
@@ -17,6 +17,10 @@ To install this module type the following:
    make
    make test
    make install
+
+CHANGES (Since 0.26)
+- Damian Conway submitted a patch to work with x.x.x versions.
+- Removed $DEBUG::single
 
 CHANGES (Since 0.25)
 

@@ -1,5 +1,5 @@
 package only;
-$VERSION = '0.26';
+$VERSION = '0.27';
 use strict;
 use 5.006001;
 use only::config;
@@ -8,17 +8,20 @@ use Config;
 use Carp;
 use overload '""' => \&stringify;
 
+BEGIN {
+    *qv = eval {require 'version.pm'} ? \&version::qv : sub{$_[0]};
+}
+
 # sub X { require Data::Dumper; die Data::Dumper::Dumper(@_) }
 # sub Y { require Data::Dumper; print Data::Dumper::Dumper(@_) }
 
 my $versionlib = '';
 
 sub import {
-    $DB::single = 1;
     goto &_install if @_ == 2 and $_[1] eq 'install';
     my $class = shift;
     my $args = {};
-    my $module = shift;
+    my $module = (($_[0]||"") =~ /\A!?-?\d/) ? 'perl itself' : shift;
     return unless defined $module and $module;
     if (ref $module eq 'HASH') {
         $args = $module;
@@ -36,11 +39,12 @@ sub import {
         @sets = ([@_]);
     }
 
+
     my $loaded = 0;
     for my $set (@sets) {
         $s = $class->new;
         $s->initialize($args, $module, $set) or return;
-        if ($s->search) {
+        if ($module ne 'perl itself' && $s->search) {
             $s->include;
             local $^W = 0;
             eval "require " . $s->module;
@@ -51,7 +55,18 @@ sub import {
         }
     }
 
-    if (not defined $INC{$s->canon_path}) {
+    if ($module eq 'perl itself') {
+        my $perl_version = qv( $] );
+        my $required_version = $_[0];
+        $required_version =~ s/!\s*/other than /g;
+        $required_version =~ s/(?<=\D)-/no later than /g;
+        $required_version =~ s/-(?=\D)/ or later/g;
+        croak "Perl version $required_version required ",
+              "but this is perl $perl_version.\nstopped"
+            unless $s->check_version($perl_version);
+        return;
+    }
+    elsif (not defined $INC{$s->canon_path}) {
         eval "require " . $s->module;
         $loaded = not($@) && $s->check_version($s->module->VERSION);
     }
@@ -309,9 +324,9 @@ sub parse_condition {
         if (/^(!)?(\d[\d\.]*)?(?:(-)(\d[\d\.]*)?)?$/) {
             $s->fancy(1)
               if defined($1) or defined($3);
-            my $lower = $2 || '0.00';
-            my $upper = defined($4) ? $4 : 
-                        defined($3) ? '999999999999' : 
+            my $lower = qv($2 || '0.00');
+            my $upper = defined($4) ? qv($4) : 
+                        defined($3) ? '99999999' : 
                         $lower;
             my $negate = defined($1) ? 1 : 0;
             croak "Lower bound > upper bound in '$_'\n"
@@ -362,10 +377,13 @@ sub module_not_found {
     my ($s) = @_;
     my $p = $s->module;
     if (defined $INC{$s->canon_path}) {
-        my $v = $s->get_loaded_version;
+        my $v = qv($s->get_loaded_version);
+        my $req = $s->condition_str();
         croak <<END;
-Module '$p', version '$v' already loaded, 
-but it does not meet the requirements of this 'use only ...'.
+Loaded $p, but version ($v) did not satisfy the requirement:
+
+    use only $p => '$req';
+
 END
     }
     my $faux_inc = 'only:' . $s->module . ':' . $s->versionlib;
@@ -849,12 +867,6 @@ send me some coffee.
 =head1 BUGS AND CAVEATS
 
 =over 4
-
-=item *
-
-Version 0.10 of C<only> had a bug with determining the versionlib path.
-The bug is fixed, but this version may not be able to locate modules
-installed with the 0.10. If this happens, just reinstall the modules.
 
 =item *
 

@@ -1,8 +1,6 @@
-# $File: //depot/cpan/Module-Install/lib/Module/Install/Fetch.pm $ $Author: autrijus $
-# $Revision: #6 $ $Change: 1362 $ $DateTime: 2003/03/11 06:39:24 $ vim: expandtab shiftwidth=4
-
+#line 1 "inc/Module/Install/Fetch.pm - /Users/ingy/local/lib/perl5/site_perl/5.8.6/Module/Install/Fetch.pm"
 package Module::Install::Fetch;
-use base 'Module::Install::Base';
+use Module::Install::Base; @ISA = qw(Module::Install::Base);
 
 $VERSION = '0.01';
 
@@ -11,7 +9,12 @@ sub get_file {
     my ($scheme, $host, $path, $file) = 
         $args{url} =~ m|^(\w+)://([^/]+)(.+)/(.+)| or return;
 
-    return unless $scheme eq 'ftp';
+    if ($scheme eq 'http' and !eval { require LWP::Simple; 1 }) {
+        $args{url} = $args{ftp_url}
+            or (warn("LWP support unavailable!\n"), return);
+        ($scheme, $host, $path, $file) = 
+            $args{url} =~ m|^(\w+)://([^/]+)(.+)/(.+)| or return;
+    }
 
     $|++;
     print "Fetching '$file' from $host... ";
@@ -21,12 +24,17 @@ sub get_file {
         return;
     }
 
+    return unless $scheme eq 'ftp' or $scheme eq 'http';
+
     require Cwd;
     my $dir = Cwd::getcwd();
     chdir $args{local_dir} or return if exists $args{local_dir};
 
-    if (eval { require Net::FTP; 1 }) { eval {
-        # use Net::FTP to get pass firewall
+    if (eval { require LWP::Simple; 1 }) {
+        LWP::Simple::mirror($args{url}, $file);
+    }
+    elsif (eval { require Net::FTP; 1 }) { eval {
+        # use Net::FTP to get past firewall
         my $ftp = Net::FTP->new($host, Passive => 1, Timeout => 600);
         $ftp->login("anonymous", 'anonymous@example.com');
         $ftp->cwd($path);
