@@ -1,5 +1,5 @@
 package only;
-$VERSION = '0.21';
+$VERSION = '0.25';
 use strict;
 use 5.006001;
 use only::config;
@@ -10,6 +10,8 @@ use overload '""' => \&stringify;
 
 # sub X { require Data::Dumper; die Data::Dumper::Dumper(@_) }
 # sub Y { require Data::Dumper; print Data::Dumper::Dumper(@_) }
+
+my $versionlib = '';
 
 sub import {
     $DB::single = 1;
@@ -23,7 +25,7 @@ sub import {
         $module = shift || '';
     }
     
-    my (@sets, $s, $loaded);
+    my (@sets, $s);
     if (not @_) {
         @sets = (['']);
     }
@@ -34,10 +36,19 @@ sub import {
         @sets = ([@_]);
     }
 
+    my $loaded = 0;
     for my $set (@sets) {
-        $s = $class->new($args, $module, $set);
-        return unless defined $s;
-        $loaded = $s->module_require and last;
+        $s = $class->new;
+        $s->initialize($args, $module, $set) or return;
+        if ($s->search) {
+            $s->include;
+            local $^W = 0;
+            eval "require " . $s->module;
+            croak 'Trouble loading ' . $s->found_path . "\n$@" if $@;
+            fix_INC();     # fix 5.6.1 %INC bug
+            $loaded = 1;
+            last;
+        }
     }
 
     if (not defined $INC{$s->canon_path}) {
@@ -56,42 +67,81 @@ sub import {
     goto &$import;
 }
 
-my $versionlib_override = '';
 sub new {
-    my ($class, $args, $module, $set) = @_;
-    my ($condition, @arguments) = @$set;
-    my $versionlib = $args->{versionlib} || 
-                     $versionlib_override || 
-                     &only::config::versionlib;
-    if (defined $args->{versionlib} and
-        not $module
-       ) {
-        $versionlib_override = $args->{versionlib};
-    }
-    return unless $module;
+    my ($class) = @_;
     my $s = bless {}, $class;
+    $s->found_path('');
+    $s->versionlib($versionlib || &only::config::versionlib);
+    return $s;
+}
+
+sub initialize {
+    my ($s, $args, $module, $set) = @_;
+    my ($condition, @arguments) = @$set;
+
+    if (defined $args->{versionlib}) {
+        $s->versionlib($args->{versionlib});
+        if (not $module) {
+            only->versionlib($args->{versionlib});
+        }
+    }
+
+    return 0 unless $module;
     $s->module($module || '');
     $s->condition($condition || '');
+    $s->arguments(\@arguments);
+
     $s->no_export(@arguments == 1 and
                   ref($arguments[0]) eq 'ARRAY' and
                   @{$arguments[0]} == 0
                  );
-    $s->arguments(\@arguments);
 
-    $s->parse_condition;
-
-    $s->versionlib($versionlib);
-    $s->versionarch(File::Spec->catdir($versionlib, $Config{archname}));
-
-    $s->mod_path(File::Spec->catdir(split '::', $s->module) . '.pm');
-    $s->canon_path(join('/',split('::', $s->module)).'.pm');
-    $s->prev_inc_path('');
-    $s->prev_canon_path('');
-    $s
+    return 1;
 }
 
-sub module_require {
+# Try to squish most occurences of a 5.6.1 bug.
+my ($fix_key, $fix_value) = ('', '');
+sub fix_INC {
+    if ($fix_key) {
+        $INC{$fix_key} = $fix_value;
+        $fix_key = $fix_value = '';
+    }
+}
+INIT { fix_INC }
+
+
+sub only::INC {
+    my ($s, $module_path) = @_;
+    fix_INC;
+    $s->search unless $s->found_path;
+    return unless defined $s->distribution_modules->{$module_path};
+
+    my $version = $s->distribution_version;
+
+    my $lib_path  = File::Spec->catfile($s->versionlib,  
+                                        $version, 
+                                        split('/', $module_path),
+                                       );
+    my $arch_path = File::Spec->catfile($s->versionarch, 
+                                        $version, 
+                                        split('/', $module_path),
+                                       );
+    for my $path ($lib_path, $arch_path) {
+        if (-f $path) {
+            open my $fh, $path
+              or die "Can't open $path for input\n";
+            $INC{$module_path} = $path;
+            ($fix_key, $fix_value) = ($module_path, $path);
+            return $fh;
+        }
+    }
+    die "Can't load versioned $module_path\n";
+}
+
+sub search {
     my ($s) = @_;
+    $s->found_path('');
+
     if (defined $INC{$s->canon_path}) {
         return $s->check_version($s->get_loaded_version);
     }
@@ -105,19 +155,15 @@ sub module_require {
     }
 
     for my $version (sort { $b <=> $a } @versions) {
-        my $path_lib = File::Spec->catfile($s->versionlib,  
+        my $lib_path = File::Spec->catfile($s->versionlib,  
                                            $version, $s->mod_path);
-        my $path_arch = File::Spec->catfile($s->versionarch, 
+        my $arch_path = File::Spec->catfile($s->versionarch, 
                                             $version, $s->mod_path);
-        for my $path ($path_lib, $path_arch) {
+        for my $path ($lib_path, $arch_path) {
             if (-f $path) {
-                $s->require_version($version);
-                $s->other_modules($path);
-                unshift @INC, $s;
-                local $^W = 0;
-                eval "require " . $s->module;
-                croak "Trouble loading $path\n$@" if $@;
-                $s->correct_inc;
+                $s->found_path($path);
+                $s->distribution_modules($s->found_path);
+                $s->distribution_version($version);
                 return 1;
             }
         }
@@ -125,47 +171,117 @@ sub module_require {
     return 0;
 }
 
-sub only::INC {
-    my ($s, $module_path) = @_;
-    $s->correct_inc;
-    return unless defined $s->other_modules->{$module_path};
-
-    my $version = $s->require_version;
-
-    my $path_lib  = File::Spec->catfile($s->versionlib,  
-                                        $version, 
-                                        split('/', $module_path),
-                                       );
-    my $path_arch = File::Spec->catfile($s->versionarch, 
-                                        $version, 
-                                        split('/', $module_path),
-                                       );
-    for my $path ($path_lib, $path_arch) {
-        if (-f $path) {
-            $s->prev_inc_path($path);
-            $s->prev_canon_path($module_path);
-            $INC{$s->prev_canon_path} = 1;
-            open my $fh, $path
-              or die "Can't open $path for input\n";
-            return $fh;
-        }
-    }
-    die "Can't load versioned $module_path\n";
-}
-
 sub stringify {
     my ($s) = @_;
     'only:' . $s->module . ':' . 
-      File::Spec->catdir($s->versionlib, $s->require_version)
+      File::Spec->catdir($s->versionlib, $s->distribution_version)
 }
 
-sub correct_inc {
+sub include {
     my ($s) = @_;
-    if ($s->prev_inc_path) {
-        $INC{$s->prev_canon_path} = $s->prev_inc_path;
-        $s->prev_inc_path('');
-        $s->prev_canon_path('');
+    $s->remove;
+    unshift @INC, $s;
+    $s
+}
+
+sub remove {
+    my ($s) = @_;
+    my $strval = overload::StrVal $s;
+    my @inc = grep {not(ref($_)) or overload::StrVal($_) ne $strval} @INC;
+    @INC = @inc;
+    $s
+}
+
+# Generic OO accessors
+for (qw( found_path mod_path canon_path
+         condition_str condition_spec fancy
+         versionarch arguments no_export
+         distribution_version
+    )) {
+    eval <<END;
+sub $_ {
+    my \$s = shift;
+    if (\@_) {
+        \$s->{$_} = shift;
+        return \$s
     }
+    else {
+        return defined \$s->{$_} ? \$s->{$_} : '';
+    }
+}
+END
+}
+
+sub DESTROY {} # To avoid autoloading it.
+
+sub module {
+    my $s = shift;
+    if (@_) {
+        $s->found_path('');
+        $s->{module} = shift;
+        $s->mod_path(File::Spec->catdir(split '::', $s->{module}) . '.pm');
+        $s->canon_path(join('/',split('::', $s->{module})).'.pm');
+        return $s;
+    }
+    else {
+        return $s->{module};
+    }
+}
+
+sub condition {
+    my $s = shift;
+    if (@_) {
+        $s->found_path('');
+        $s->condition_str(shift);
+        $s->parse_condition;
+        return $s;
+    }
+    else {
+        return $s->condition_str;
+    }
+}
+
+sub versionlib {
+    my $s = shift;
+    if (ref $s) {
+        if (@_) {
+            $s->found_path('');
+            $s->{versionlib} = shift;
+            $s->versionarch(File::Spec->catdir($s->{versionlib}, 
+                                               $Config{archname}
+                                              ));
+            return $s;
+        }
+        else {
+            return $s->{versionlib};
+        }
+    }
+    elsif (@_) {
+        $versionlib = shift;
+    }
+    return $versionlib;
+}
+
+sub distribution_modules {
+    my ($s, $path) = (@_, '');
+    $s->{distribution_modules} ||= {};
+    return $s->{distribution_modules}
+      unless $path;
+    $path =~ s/\.pm$/\.yaml/
+      or return {};
+    open META, $path
+      or return {};
+    $s->{distribution_modules} = {};
+    my $meta = do {local $/; <META>};
+    close META;
+    $s->{distribution_modules}{$_} = 1 for ($meta =~ /^  - (\S+)/gm);
+    $s->{distribution_modules}
+}
+
+sub export {
+    my ($s) = @_;
+    return if $s->no_export;
+    $s->module->can('import')
 }
 
 sub get_loaded_version {
@@ -186,7 +302,7 @@ sub get_loaded_version {
 
 sub parse_condition {
     my ($s) = @_;
-    my @condition = split /\s+/, $s->condition;
+    my @condition = split /\s+/, $s->condition_str;
     $s->fancy(@condition ? 0 : 1);
     @condition = map {
         my $v;
@@ -239,36 +355,6 @@ sub check_version {
         }
     }
     $match
-}
-
-sub export {
-    my ($s) = @_;
-    return if $s->no_export;
-    $s->module->can('import')
-}
-
-# Generic OO accessor
-sub AUTOLOAD {
-    my $s = shift;
-    (my $attr = $only::AUTOLOAD) =~ s/.*:://;
-    $s->{$attr} = shift if @_;
-    $s->{$attr}
-}
-
-sub other_modules {
-    my ($s, $path) = (@_, '');
-    $s->{other_modules} ||= {};
-    return $s->{other_modules}
-      unless $path;
-    $path =~ s/\.pm$/\.yaml/
-      or return {};
-    open META, $path
-      or return {};
-    $s->{other_modules} = {};
-    my $meta = do {local $/; <META>};
-    close META;
-    $s->{other_modules}{$_} = 1 for ($meta =~ /^  - (\S+)/gm);
-    $s->{other_modules}
 }
 
 sub module_not_found {
@@ -347,6 +433,15 @@ only - Load specific module versions; Install many
     # Override versionlib globally
     use only {versionlib => '/home/ingy/perlmods'};
     use only MyModule => 0.33;
+
+    # Object Oriented Interface
+    use only;
+    $only = only->new;
+    $only->module('MyModule');
+    $only->condition('0.30');
+    $only->include;
+    require MyModule;
+    $only->remove;
     
 =head1 USAGE
 
@@ -369,7 +464,7 @@ only - Load specific module versions; Install many
         ;
 
     # To install an alternate version of a module
-    perl -Monly=install <- VERSION>        # instead of 'make install'
+    perl -Monly=install <- ARGUMENTS>        # instead of 'make install'
 
 =head1 DESCRIPTION
 
@@ -581,6 +676,130 @@ and then later:
 you want to be sure that the correct version of the second module
 gets loaded. Especially when another module is doing the loading.
 
+=head1 OBJECT ORIENTED API
+
+C<only> is implemented internally using Object Oriented Programming. 
+You yourself can also make use of C<only> objects directly in your
+program. Instead of saying something like this:
+
+    use only MyModule => '0.30', qw(foo bar);
+
+You could say:
+
+    my $only;
+    BEGIN {
+        $only = only->new;
+        $only->module('MyModule')->condition('0.30');
+        $only->include;
+    }
+    use MyModule qw(foo bar);
+
+The cool thing here is that we just used a normal C<use> statement to
+load a particular module.
+
+This gives you more control and you may be able to do some interesting
+stuff this way.
+
+The following sections detail the Object Oriented API.
+
+=head2 Class Methods
+
+There are three class methods available:
+
+=over 4
+
+=item * new
+
+This simply constucts a new C<only> object. It takes no arguments.
+
+    my $only = only->new;
+
+=item * versionlib
+
+When call as a class method, C<versionlib> sets the global default
+versionlib for all future C<only> processing. This takes one argument.
+
+    only->versionlib('/home/ingy/modules');
+
+=item * fix_INC
+
+There is a bug in Perl 5.6.1 that sometimes leaves an incorrect value 
+in %INC after loading a module from an C<only> object. If you call 
+this method after a C<use> or C<require> the values will be fixed.
+
+=back
+
+=head2 Object Methods
+
+All of the following methods return themselves when used as
+store-accessors. This lets you chain calls together:
+
+    only->new->module('MyModule)->version('0.30')->include;
+
+When used as fetch-accessors they, of course, return their values.
+
+=over 4
+
+=item * module
+
+You pass this method the name of any one module from a particular
+installed module distribution. The object becomes responsible for
+loading any and all modules associated with the one you specified.
+
+    $only->module('MyModule');
+
+=item * condition
+
+Sets the version condition specification.
+
+    $only->condition('0.30-0.50');
+
+=item * versionlib
+
+When called as an object method, C<versionlib> sets the versionlib that
+will be used by this object.
+
+    $only->versionlib('/home/ingy/modules');
+
+=item * include
+
+This simply puts the object at the front of @INC. It also makes sure
+that no other references to the same object are in @INC.
+
+    $only->include;
+
+Remember that your object will only have an effect on the Perl's
+C<require> process, if it is in @INC.
+
+=item * remove
+
+This method removes any references to the object from @INC.
+
+    $only->remove;
+
+=item * search
+
+You won't normally need to call this method yourself. Search determines
+whether a matching copy of the module exists for the current values of
+C<module>, C<condition> and C<versionlib>. It doesn't actually load
+anything though.
+
+    if ($only->search) {
+        ...
+    }
+
+C<search> is called automatically when a C<use> or C<require> hits
+your object.
+
+=item * distribution_version
+
+After a successful C<search> (or C<use> or C<require>), this method will
+return the version that was found.
+
+    my $version = $only->distribution_version;
+
+=back
+
 =head1 THE FINE PRINT ON VERSIONING
 
 The C<only.pm> module loads a module by the following process:
@@ -645,6 +864,8 @@ versions of Perl don't support putting objects in @INC.
 =item *
 
 There is currently no way to install documentation for multiple modules.
+It wouldn't make much sense anyway, because C<perldoc> wouldn't have
+support for reading the doc.
 
 =item *
 

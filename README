@@ -1,4 +1,4 @@
-only version 0.21
+only version 0.25
 =====================
 
 The only.pm module allows you to install many different versions of a
@@ -17,6 +17,10 @@ To install this module type the following:
    make
    make test
    make install
+
+CHANGES (Since 0.20)
+
+- Added a public Object Oriented Interface for more control.
 
 CHANGES (Since 0.10)
 

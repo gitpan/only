@@ -1,6 +1,13 @@
 # Revision history for Perl extension only.
 
 ---
+version: 0.25
+date:    Mon Feb 24 00:31:46 PST 2003
+changes:
+  - Added a public object oriented interface
+  - Refactored the internals to use the same interface.
+  - Much cleaner :)
+---
 version: 0.21
 date:    Sat Feb 22 14:46:08 PST 2003
 changes:

@@ -1,5 +1,5 @@
 package only::config;
-$VERSION = '0.21';
+$VERSION = '0.25';
 use strict;
 
 use constant versionlib => '<%VERSIONLIB%>';

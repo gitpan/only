@@ -18,6 +18,7 @@ t/09alternate.t
 t/10install_version.t
 t/11fail_msg.t
 t/12set_versionlib.t
+t/13ooapi.t
 t/onlyTemplate.pm
 t/onlyTest.pm
 CPAN/MakeMaker.pm
