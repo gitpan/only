@@ -1,8 +1,8 @@
 package only::config;
+$VERSION = '0.20';
 use strict;
 
-$only::config::versionlib = '<%VERSIONLIB%>';
-$only::config::versionarch = '<%VERSIONARCH%>';
+use constant versionlib => '<%VERSIONLIB%>';
 
 1;
 

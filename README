@@ -1,10 +1,12 @@
-only version 0.10
+only version 0.11
 =====================
 
 The only.pm module allows you to install many different versions of a Perl
 package, and then specify which one should be used in a program.
 
     use only MyModule => '0.50';
+
+See 'perldoc only' for much more information.
 
 INSTALLATION
 
@@ -14,6 +16,15 @@ To install this module type the following:
    make
    make test
    make install
+
+CHANGES (Since 0.10)
+
+- Works on Windows
+- Selectable versionlib. Both on install and use.
+- Moved version specific installation stuff into only::install
+- Programmatic installation
+- Fixed bugs
+- Removed versionarch concept. (folded into versionlib)
 
 DEPENDENCIES
 

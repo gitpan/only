@@ -1,7 +1,7 @@
 use strict;
 use Test::More tests => 4;
 use lib 't';
-use onlyTest qw(version_install site_install);
+use onlyTest;
 
 version_install('_Foo-Bar-0.50');
 ok(-f File::Spec->catfile(qw(t version 0.50 _Foo Bar.pm)));

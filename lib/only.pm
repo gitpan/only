@@ -1,5 +1,5 @@
 package only;
-$VERSION = '0.10';
+$VERSION = '0.20';
 use strict;
 use 5.006001;
 use only::config;
@@ -8,13 +8,20 @@ use Config;
 use Carp;
 use overload '""' => \&stringify;
 
-# sub XXX { require Data::Dumper; croak Data::Dumper::Dumper(@_) }
+# sub X { require Data::Dumper; die Data::Dumper::Dumper(@_) }
+# sub Y { require Data::Dumper; print Data::Dumper::Dumper(@_) }
 
 sub import {
     $DB::single = 1;
     goto &_install if @_ == 2 and $_[1] eq 'install';
-    my ($class, $package) = splice(@_, 0, 2);
+    my $class = shift;
+    my $args = {};
+    my $package = shift;
     return unless defined $package and $package;
+    if (ref $package eq 'HASH') {
+        $args = $package;
+        $package = shift || '';
+    }
     
     my (@sets, $s, $loaded);
     if (not @_) {
@@ -28,11 +35,12 @@ sub import {
     }
 
     for my $set (@sets) {
-        $s = $class->new($package, $set);
+        $s = $class->new($args, $package, $set);
+        return unless defined $s;
         $loaded = $s->module_require and last;
     }
 
-    if (not defined $INC{$s->pkg_path}) {
+    if (not defined $INC{$s->canon_path}) {
         eval "require " . $s->package;
         $loaded = not($@) && $s->check_version($s->package->VERSION);
     }
@@ -48,9 +56,19 @@ sub import {
     goto &$import;
 }
 
+my $versionlib_override = '';
 sub new {
-    my ($class, $package, $set) = @_;
+    my ($class, $args, $package, $set) = @_;
     my ($condition, @arguments) = @$set;
+    my $versionlib = $args->{versionlib} || 
+                     $versionlib_override || 
+                     &only::config::versionlib;
+    if (defined $args->{versionlib} and
+        not $package
+       ) {
+        $versionlib_override = $args->{versionlib};
+    }
+    return unless $package;
     my $s = bless {}, $class;
     $s->package($package || '');
     $s->condition($condition || '');
@@ -62,8 +80,8 @@ sub new {
 
     $s->parse_condition;
 
-    $s->lib($only::config::versionlib);
-    $s->arch($only::config::versionarch);
+    $s->versionlib($versionlib);
+    $s->versionarch(File::Spec->catdir($versionlib, $Config{archname}));
 
     $s->pkg_path(File::Spec->catdir(split '::', $s->package) . '.pm');
     $s->canon_path(join('/',split('::', $s->package)).'.pm');
@@ -85,14 +103,12 @@ sub module_require {
     else {
         @versions = map { $_->[0] } @{$s->condition_spec};
     }
-    $s->version_require(@versions)
-}
 
-sub version_require {
-    my $s = shift;
-    for my $version (sort { $b <=> $a } @_) {
-        my $path_lib  = File::Spec->catfile($s->lib,  $version, $s->pkg_path);
-        my $path_arch = File::Spec->catfile($s->arch, $version, $s->pkg_path);
+    for my $version (sort { $b <=> $a } @versions) {
+        my $path_lib = File::Spec->catfile($s->versionlib,  
+                                           $version, $s->pkg_path);
+        my $path_arch = File::Spec->catfile($s->versionarch, 
+                                            $version, $s->pkg_path);
         for my $path ($path_lib, $path_arch) {
             if (-f $path) {
                 $s->require_version($version);
@@ -112,30 +128,35 @@ sub version_require {
 sub only::INC {
     my ($s, $pkg_path) = @_;
     $s->correct_inc;
-        
     return unless defined $s->other_modules->{$pkg_path};
 
     my $version = $s->require_version;
 
-    my $path_lib  = File::Spec->catfile($s->lib,  $version, $pkg_path);
-    my $path_arch = File::Spec->catfile($s->arch, $version, $pkg_path);
+    my $path_lib  = File::Spec->catfile($s->versionlib,  
+                                        $version, 
+                                        split('/', $pkg_path),
+                                       );
+    my $path_arch = File::Spec->catfile($s->versionarch, 
+                                        $version, 
+                                        split('/', $pkg_path),
+                                       );
     for my $path ($path_lib, $path_arch) {
         if (-f $path) {
             $s->prev_inc_path($path);
-            $s->prev_canon_path(join('/', File::Spec->splitdir($pkg_path)));
+            $s->prev_canon_path($pkg_path);
             $INC{$s->prev_canon_path} = 1;
             open my $fh, $path
               or die "Can't open $path for input\n";
             return $fh;
         }
     }
-    croak "Can't load versioned $pkg_path\n";
+    die "Can't load versioned $pkg_path\n";
 }
 
 sub stringify {
     my ($s) = @_;
     'only:' . $s->package . ':' . 
-      File::Spec->catdir($s->lib, $s->require_version)
+      File::Spec->catdir($s->versionlib, $s->require_version)
 }
 
 sub correct_inc {
@@ -192,8 +213,8 @@ sub parse_condition {
 sub all_versions {
     my ($s) = @_;
     my %versions;
-    for my $lib ($s->lib, $s->arch) {
-        opendir LIB, $s->lib;
+    for my $lib ($s->versionlib, $s->versionarch) {
+        opendir LIB, $s->versionlib;
         while (my $dir = readdir(LIB)) {
             next unless $dir =~ /^\d[\d\.]*$/;
             next if $dir eq $Config{version};
@@ -226,7 +247,7 @@ sub export {
     $s->package->can('import')
 }
 
-# Generic getter/setter
+# Generic OO accessor
 sub AUTOLOAD {
     my $s = shift;
     (my $attr = $only::AUTOLOAD) =~ s/.*:://;
@@ -256,206 +277,37 @@ sub module_not_found {
     my $p = $s->package;
     if (defined $INC{$s->canon_path}) {
         my $v = $s->get_loaded_version;
-    croak <<END;
+        croak <<END;
 Module '$p', version '$v' already loaded, 
 but it does not meet the requirements of this 'use only ...'.
 END
     }
-    my $inc = join "\n", map "  - $_", @INC;
+    my $faux_inc = 'only:' . $s->package . ':' . $s->versionlib;
+    my $inc = join "\n", map "  - $_", ($faux_inc, @INC);
     croak <<END;
 Can't locate desired version of $p in \@INC:
 $inc
 END
 }
 
-#==============================================================================
-
 sub _install {
-    install(@_);
+    require only::install;
+    my %args;
+    if (@ARGV == 1 and $ARGV[0] =~ /^[\d\.]+$/) {
+        $args{version} = $ARGV[0];
+    }
+    else {
+        for (@ARGV) {
+            unless (/^(\w+)=(\S+)$/) {
+                croak "Invalid option format '$_' for only=install\n";
+            }
+            $args{$1} = $2;
+        }
+    }
+    only::install::install(%args);
     exit 0;
 }
     
-sub install {
-    {
-        local $^W = 0;
-        require ExtUtils::Install;
-    }
-
-    check_env();
-    my $version = get_version();
-    
-    my $lib  = File::Spec->catdir(qw(blib lib));
-    mkdir($lib, 0777) unless -d $lib;
-    my $arch = File::Spec->catdir(qw(blib arch));
-    mkdir($arch, 0777) unless -d $arch;
-
-    my $install_lib  = File::Spec->catdir(
-        $only::config::versionlib, 
-        $version,
-    );
-    my $install_arch = File::Spec->catdir(
-        $only::config::versionarch, 
-        $version,
-    );
-    my $install_map = {
-        $lib  => $install_lib,
-        $arch => $install_arch,
-        read  => '',
-    };
-    ExtUtils::Install::install($install_map, 1, 0);
-
-    my @lib_pm_files = map trim_dir($_), find_pm($lib);
-    my @arch_pm_files = map trim_dir($_), find_pm($arch);
-    my $meta = <<END;
-# This meta file created by/for only.pm
-only_version: $only::VERSION
-install_version: $version
-install_modules:
-END
-    for my $pm_file (sort(@lib_pm_files, @arch_pm_files)) {
-        $meta .= "  - $pm_file\n";
-    }
-    install_meta($meta, $install_lib, $_) for @lib_pm_files;
-    install_meta($meta, $install_arch, $_) for @arch_pm_files;
-}
-
-sub install_meta {
-    my ($meta, $base, $module) = @_;
-    my $meta_file = File::Spec->catfile($base, $module);
-    $meta_file =~ s/\.pm$/\.yaml/
-      or croak;
-    my $old_meta = '';
-    if (-f $meta_file) {
-        open META, $meta_file
-          or croak "Can't open $meta_file for input\n";
-        $old_meta = do {local $/; <META>};
-        close META;
-    }
-    if ($meta eq $old_meta) {
-        print "Skipping $meta_file (unchanged)\n";
-    }
-    else {
-        print "Installing $meta_file\n";
-        open META, '>', $meta_file
-          or croak "Can't open $meta_file for output\n";
-        print META $meta;
-        close META;
-    }
-}
-
-sub trim_dir {
-    my ($path) = @_;
-    my ($vol, $dir, $file) = File::Spec->splitpath($path);
-    my @dirs = File::Spec->splitdir($dir);
-    pop @dirs unless $dirs[-1];
-    splice(@dirs, 0, 2);
-    $dir = scalar(@dirs) ? File::Spec->catdir(@dirs) : '';
-    $dir ? File::Spec->catfile($dir, $file) : $file
-}
-
-sub find_pm {
-    my ($path, $base) = (@_, '');
-    croak unless $path;
-    my (@pm_files);
-    $path = File::Spec->catdir($base, $path) if $base;
-    local *DIR;
-    opendir(DIR, $path) 
-      or croak "Can't open directory '$path':\n$!";
-    while (my $file = readdir(DIR)) {
-        next if $file =~ /^\./;
-        my $file_path = File::Spec->catfile($path, $file);
-        my $dir_path = File::Spec->catdir($path, $file);
-        if ($file =~ /^\w+\.pm$/) {
-            push @pm_files, $file_path;
-        }
-        elsif (-d $dir_path) {
-            push @pm_files, find_pm($file, $path);
-        }
-    }
-    return @pm_files;
-}
-
-sub check_env {
-    my $lib  = File::Spec->catdir(qw(blib lib));
-    my $arch = File::Spec->catdir(qw(blib arch));
-    return 1 if -d 'blib' and (-d $lib or -d $arch);
-    if (-f 'Build.PL') {
-        croak <<END;
-First you need to run:
-  
-  perl Build.PL
-  ./Build
-  ./Build test    # (optional)
-
-END
-    }
-    elsif (-f 'Makefile.PL') {
-        croak <<END;
-First you need to run:
-  
-  perl Makefile.PL
-  make
-  make test       # (optional)
-
-END
-    }
-    else {
-        croak <<END;
-You don't appear to be inside a directory fit to install a Perl module.
-See 'perldoc only' for more information.
-END
-    }
-}
-
-sub get_version {
-    my $version = '';
-    if (@ARGV and length($ARGV[0])) {
-        $version = $ARGV[0];
-    }
-    else {
-        if (-f 'Build.PL') {
-            if (-f 'META.yml') {
-                open META, "META.yml"
-                  or croak "Can't open META.yml for input:\n$!\n";
-                local $/;
-                my $meta = <META>;
-                close META;
-                if ($meta =~ /^version\s*:\s+(\S+)$/m) {
-                    $version = $1;
-                }
-            }
-        }
-        else {
-            if (-f 'Makefile') {
-                open MAKEFILE, "Makefile"
-                  or croak "Can't open Makefile for input:\n$!\n";
-                local $/;
-                my $makefile = <MAKEFILE>;
-                close MAKEFILE;
-                if ($makefile =~ /^VERSION\s*=\s*(\S+)$/m) {
-                    $version = $1;
-                }
-            }
-        }
-        croak <<END unless $version;
-Can't determine the version for this install. Please specify manually:
-
-    perl -Monly=install - 1.23
-
-END
-    }
-    if ($version !~ /^\d[\d\.]*$/) {
-        croak <<END;
-
-Operation failed. 
-'$version' is an invalid version string.  
-Must be numeric.
-
-END
-    }
-    return $version;
-}
-
 1;
 
 __END__
@@ -471,28 +323,43 @@ only - Load specific module versions; Install many
     perl Makefile.PL
     make test
     perl -Monly=install    # substitute for 'make install' 
+    perl -Monly=install - version=0.33 versionlib=/home/ingy/perlmods
     
     # Only use MyModule version 0.30
-    use only MyModule => '0.30';
+    use only MyModule => 0.30;
 
     # Only use MyModule if version is between 0.30 and 0.50
     # but not 0.36; or if version is >= to 0.55.
     use only MyModule => '0.30-0.50 !0.36 0.55-', qw(:all);
 
     # Don't export anything!
-    use only MyModule => '0.30', [];
+    use only MyModule => 0.30, [];
 
     # Version dependent arguments
     use only MyModule =>
         [ '0.20-0.27', qw(f1 f2 f3 f4) ],
         [ '0.30-',     qw(:all) ];
 
+    # Override versionlib
+    use only {versionlib => '/home/ingy/perlmods'},
+        MyModule => 0.33;
+    
+    # Override versionlib globally
+    use only {versionlib => '/home/ingy/perlmods'};
+    use only MyModule => 0.33;
+    
 =head1 USAGE
 
     # Note: <angle brackets> mean "optional".
 
     # To load a specific module
     use only MODULE => 'CONDITION SPEC' <, ARGUMENTS>;
+
+    # To set options
+    use only < { OPTIONS HASH } >, MODULE => 'CONDITION SPEC';
+
+    # To set options globally
+    use only < { OPTIONS HASH } >;
 
     # For multiple argument sets
     use only MODULE => 
@@ -602,6 +469,21 @@ simply wrap each condition spec and arguments with an array ref.
         [ '0.20-0.27', qw(f1 f2 f3 f4) ],
         [ '0.30-',     qw(:all) ];
 
+=head1 OPTIONS
+
+Options to C<only> are specified as a hash reference placed before the
+module name. If there is no module name, the options become global,
+and affect all other calls to only (even ones from other modules, so
+be aware). 
+
+Currently, the only option is C<versionlib>.
+
+Sometimes you need to tell C<only> to use a specific version library to
+load from. Use the C<versionlib> option to do this.
+
+    use only { versionlib => '/home/ingy/modules' },
+        MyModule => 0.33;
+
 =head1 INSTALLING MULTIPLE MODULE VERSIONS
 
 The C<only.pm> module also has a facility for installing more than one
@@ -622,7 +504,12 @@ This will attempt to determine what version the module should be
 installed under. In some cases you may need to specify the version
 yourself. Do the following:
 
-    perl -Monly=install - 0.55
+    perl -Monly=install - version=0.55
+
+By default, everything will be installed in versionlib directory stored
+in C<only::config>. To override the installation location, do this:
+
+    perl -Monly=install - versionlib=/home/ingy/modules
 
 NOTE:
 Also works with C<Module::Build> style modules.
@@ -633,6 +520,25 @@ do C<perl Makefile.PL> or C<perl Build.PL>. While this seems obvious,
 you may run into problems with C<sudo perl -Monly=install>, since the
 C<root> account may have a different C<perl> in its path. If this
 happens, just use the full path to your C<perl>.
+
+=head2 Installing with Module::Build
+
+When installing modules distributed with Module::Build, you can use the
+following commands to install into version specific libraries:
+
+    perl Build.PL
+    ./Build
+    ./Build versioninstall
+ 
+For overrides:
+
+    perl Build.PL version=1.23 versionlib=/home/ingy/modules
+    ./Build
+    ./Build versioninstall
+
+NOTE: 
+The Module::Build verion install does not suffer from the same C<sudo>
+problem outlined above. Module::Build remembers the original perl path.
 
 =head1 INSTALLATION LOCATION
 
@@ -727,12 +633,29 @@ send me some coffee.
 
 =item *
 
-There is currently no way to install documentation for multiple modules.
+Version 0.10 of C<only> had a bug with determining the versionlib path.
+The bug is fixed, but this version may not be able to locate modules
+installed with the 0.10. If this happens, just reinstall the modules.
 
 =item *
 
 This module only works with Perl 5.6.1 and higher. That's because earlier
 versions of Perl don't support putting objects in @INC.
+
+=item *
+
+There is currently no way to install documentation for multiple modules.
+
+=item *
+
+You can't use C<only> to load a specific version of C<only> itself,
+because the default version gets loaded before it can do any trickery.
+
+If you had both versions 1.23 and 3.21 installed:
+
+    use only only => '1.23';
+
+would load up 3.21 and then fail because it wasn't 1.23.
 
 =back
 

@@ -1,97 +1,96 @@
-# use strict;
 use CPAN::MakeMaker;
-use Config;
-use File::Spec;
-use File::Path;
 
 create_config_module();
 
 $PREREQ_PM{'Test::More'} = 0;
 
 $NAME = 'only';
+$VERSION_FROM = 'lib/only.pm';
 @CLEAN_FILES = qw(
-  lib t/site t/version
+  lib/only/config.pm 
+  t/lib t/site t/packages t/version t/alternate
   t/_Foo-Bar-0.55/blib/arch
   t/_Foo-Bar-0.50/blib/arch
   t/_Foo-Bar-0.60/blib/arch
+  t/_Foo-Bar-1.00/blib/arch
 );
 
 WriteMakefile;
 
 #==============================================================================
+use strict;
+use lib 't'; 
+use onlyTemplate;
+use Config;
+use File::Spec;
 
-my ($versionlib, $versionarch);
+my ($versionlib, $suggested_versionlib, $old_versionlib, $old_differs);
+BEGIN {
+    $versionlib = '';
+    $old_versionlib = '';
+    $suggested_versionlib = '';
+}
 
 sub create_config_module {
     my $a;
     heuristics();
+    $old_differs = 
+      ($old_versionlib and $old_versionlib ne $suggested_versionlib);
     intro();
+
+    my $default = $old_differs ? 'n' : 'y';
     while (1) {
-        $a = prompt("Do you want to use the defaults (y/n)?", 'Y');
+        $a = prompt('Do you want to use the "suggested" directory (y/n)?', 
+                    $default
+                   );
         last if $a =~ /^[yn]$/i;
     }
+    if ($a =~ /^y$/) {
+        $versionlib = $suggested_versionlib;
+    }
+    elsif ($old_differs) {
+        while (1) {
+            $a = prompt('Do you want to use the "old" directory (y/n)?', 
+                        'y'
+                       );
+            last if $a =~ /^[yn]$/i;
+        }
+        if ($a =~ /^y$/) {
+            $versionlib = $old_versionlib;
+        }
+    }
+
     ask() if $a =~ /^n$/i;
-    template_config();
+
+    write_template('config.pm.template', 
+                   'lib/only/config.pm',
+                   {VERSIONLIB => $versionlib},
+                  );
 }
 
 sub heuristics {
-    eval { require only::config };
-    if (not $@) {
-        $versionlib = $only::config::versionlib;
-        $versionarch = $only::config::versionarch;
-        return;
+    eval q{ require only::config };
+    unless ($@ or defined $only::config::versionarch) {
+        $old_versionlib = &only::config::versionlib;
     }
-    my ($vol1, $dir1) = File::Spec->splitpath( $Config{sitelib} );
-    my @dir1 = File::Spec->splitdir($dir1);
-    my $path1 = join ',', @dir1;
-    my ($vol2, $dir2) = File::Spec->splitpath( $Config{sitearch} );
-    my @dir2 = File::Spec->splitdir($dir2);
-    my $path2 = join ',', @dir2;
+    my ($vol, $dir) = File::Spec->splitpath( $Config{sitelib}, 1 );
+    my @dir = File::Spec->splitdir($dir);
 
-    if ($vol1 eq $vol2 and
-        $path1 eq $path2 and
-        $path1 =~ /^perl,site,lib$/
-       ) {
-        $versionlib = $versionarch =
+    if (grep /^site/i, @dir) {
+        s/^site.*/version/i for @dir;
+        $suggested_versionlib =
           File::Spec->catpath(
-              $vol1, 
-              File::Spec->catdir(qw(perl version lib)),
-          );
-        return;
-    }
-
-    if (grep /^site/i, @dir1) {
-        s/^site.*/version/i for @dir1;
-        $versionlib =
-          File::Spec->catpath(
-              $vol1, 
-              File::Spec->catdir(@dir1),
+              $vol, 
+              File::Spec->catdir(@dir),
           );
     }
     else {
-        $versionlib = 
+        $suggested_versionlib = 
           File::Spec->catpath(
-              $vol1, 
-              File::Spec->catdir(@dir1, 'version-lib'),
+              $vol, 
+              File::Spec->catdir(@dir, 'version-lib'),
           );
     }
-        
-    if (grep /^site/i, @dir2) {
-        s/^site.*/version/i for @dir2;
-        $versionarch =
-          File::Spec->catpath(
-              $vol2, 
-              File::Spec->catdir(@dir2),
-          );
-    }
-    else {
-        $versionarch = 
-          File::Spec->catpath(
-              $vol2, 
-              File::Spec->catdir(@dir2, 'version-arch'),
-          );
-    }
-
 }
 
 sub intro {
@@ -101,15 +100,21 @@ sub intro {
 versions of any Perl module. In order to do this, it installs the
 modules in a separate directory than the rest of your modules.
 
-You need to decide which directories the modules will be installed in.
-These values will be stored in only::config so that only.pm will know
+You need to decide which directory the modules will be installed in.
+This value will be stored in only::config so that only.pm will know
 where to look in order to load special versions of a module.
 
-According to my heuristics (guesses), the best place to install special
-versions of Perl modules is:
+The suggested place to install special versions of Perl modules is:
 
-  lib:  $versionlib
-  arch: $versionarch
+  $suggested_versionlib
+
+END
+
+    print <<END if $old_differs;
+
+But in a previous install you choose this directory:
+
+  $old_versionlib
 
 END
 }
@@ -117,10 +122,9 @@ END
 sub ask {
     print <<END;
 
-OK. You need to enter two directories. The first one is where plain Perl
-modules will be installed. The second one is where architecture
-dependent modules go. They can be the same directory. The directory(s)
-must already exist to be accepted.
+OK. Please enter a directory where special versions of Perl modules will
+be installed. The directory must be an absolute path and must already
+exist to be accepted.
 
 END
 
@@ -129,26 +133,4 @@ END
         last if -d $a and File::Spec->file_name_is_absolute($a);
     }
     $versionlib = $a;
-
-    while (1) {
-        $a = prompt("Version arch?", $versionarch);
-        last if -d $a and File::Spec->file_name_is_absolute($a);
-    }
-    $versionarch = $a;
-}
-
-sub template_config {
-    local $/;
-    open TEMPLATE, "config.pm.template"
-      or die "Can't open config.pm.template for input:\n$!\n";
-    my $template = <TEMPLATE>;
-    $template =~ s/<%VERSIONLIB%>/$versionlib/;
-    $template =~ s/<%VERSIONARCH%>/$versionarch/;
-    close TEMPLATE;
-
-    mkpath('lib/only');
-    open CONFIG, ">lib/only/config.pm"
-      or die "Can't open lib/only/config.pm for output:\n$!\n";
-    print CONFIG $template;
-    close CONFIG;
 }
