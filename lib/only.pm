@@ -1,5 +1,5 @@
 package only;
-$VERSION = '0.25';
+$VERSION = '0.26';
 use strict;
 use 5.006001;
 use only::config;

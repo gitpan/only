@@ -1,6 +1,6 @@
 use strict;
+use lib 't', 'inc';
 use Test::More tests => 4;
-use lib 't';
 use onlyTest;
 
 version_install('_Foo-Bar-0.50');

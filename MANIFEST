@@ -1,5 +1,6 @@
 Changes
 MANIFEST
+META.yml
 Makefile.PL
 README
 config.pm.template
@@ -21,4 +22,15 @@ t/12set_versionlib.t
 t/13ooapi.t
 t/onlyTemplate.pm
 t/onlyTest.pm
-CPAN/MakeMaker.pm
+inc/Module/Install.pm
+inc/Module/Install/Base.pm
+inc/Module/Install/Can.pm
+inc/Module/Install/Fetch.pm
+inc/Module/Install/Include.pm
+inc/Module/Install/Makefile.pm
+inc/Module/Install/Metadata.pm
+inc/Module/Install/PERSONAL/only.pm
+inc/Module/Install/Win32.pm
+inc/Test.pm
+inc/Test/Builder.pm
+inc/Test/More.pm

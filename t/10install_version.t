@@ -1,6 +1,6 @@
 use strict;
+use lib 't', 'inc';
 use Test::More tests => 4;
-use lib 't';
 use onlyTest;
 use File::Spec;
 no warnings 'once';

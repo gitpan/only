@@ -1,0 +1,9 @@
+name: only
+version: 0.26
+abstract: Load specific module versions; Install many
+author: Brian Ingerson <ingy@cpan.org>
+license: perl
+distribution_type: module
+build_requires:
+  Test::More: 0
+generated_by: Module::Install version 0.20

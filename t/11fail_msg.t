@@ -1,6 +1,6 @@
 use strict;
+use lib 't', 'inc';
 use Test::More tests => 1;
-use lib 't';
 use onlyTest;
 
 eval q{use only '_Bogus::Module' => '1.23'};

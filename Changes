@@ -1,5 +1,15 @@
 # Revision history for Perl extension only.
 
+version: 0.26
+date:    Sun Mar  2 21:22:26 PST 2003
+cahnges:
+  - Switched from CPAN::MakeMaker to Module::Install
+---
+version: 0.26
+date:    Thu Feb 27 01:10:45 PST 2003
+changes:
+  - Changed versions of CPAN/MakeMaker to 0.11 because of the insidious
+    CPAN.pm related bug.
 ---
 version: 0.25
 date:    Mon Feb 24 00:31:46 PST 2003

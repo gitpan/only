@@ -1,5 +1,5 @@
 package only::install;
-$VERSION = '0.25';
+$VERSION = '0.26';
 @EXPORT_OK = qw(install);
 use strict;
 use 5.006001;

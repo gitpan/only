@@ -1,6 +1,6 @@
 use strict;
+use lib 't', 'inc';
 use Test::More tests => 2;
-use lib 't';
 use onlyTest;
 
 use only '_Foo::Bar' => '0.60';

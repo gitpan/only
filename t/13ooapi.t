@@ -1,6 +1,6 @@
 use strict;
+use lib 't', 'inc';
 use Test::More tests => 11;
-use lib 't';
 use onlyTest;
 use File::Spec;
 

@@ -1,4 +1,4 @@
-only version 0.25
+only version 0.26
 =====================
 
 The only.pm module allows you to install many different versions of a
@@ -17,6 +17,11 @@ To install this module type the following:
    make
    make test
    make install
+
+CHANGES (Since 0.25)
+
+- Switched from CPAN::MakeMaker to Module::Install. This is one of the first
+  modules to use the brilliant new framework.
 
 CHANGES (Since 0.20)
 
