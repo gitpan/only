@@ -1,0 +1,10 @@
+# Revision history for Perl extension only.
+
+---
+version: 0.01
+date:    Thu Feb  6 14:34:39 PST 2003
+changes:
+    - |
+      original version; created by h2xs 1.22 with options
+      -b 5.5.3 -PAXn only
+

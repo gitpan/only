@@ -1,0 +1,9 @@
+package only::config;
+use strict;
+
+$only::config::versionlib = '<%VERSIONLIB%>';
+$only::config::versionarch = '<%VERSIONARCH%>';
+
+1;
+
+# vim: set ft=perl:
