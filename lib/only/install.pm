@@ -1,5 +1,5 @@
 package only::install;
-$VERSION = '0.20';
+$VERSION = '0.21';
 @EXPORT_OK = qw(install);
 use strict;
 use 5.006001;
@@ -12,9 +12,9 @@ use Carp;
 sub install {
     my %args = @_;
     check_env();
-    my ($pkg_name, $pkg_ver) = get_meta();
+    my ($dist_name, $dist_ver) = get_meta();
     my $versionlib = $args{versionlib} || &only::config::versionlib;
-    my $version = $args{version} || $pkg_ver;
+    my $version = $args{version} || $dist_ver;
     if ($version !~ /^\d+(\.\d+)?$/) {
         croak <<END;
 Install failed. '$version' is an invalid version string. Must be numeric.
@@ -53,9 +53,9 @@ END
 # This meta file created by/for only.pm
 meta_version: $only::VERSION
 install_version: $version
-package_name: $pkg_name
-package_version: $pkg_ver
-package_modules:
+distribution_name: $dist_name
+distribution_version: $dist_ver
+distribution_modules:
 END
     for my $file (sort(@lib_pm_files, @arch_pm_files)) {
         my $pm_file = join '/', File::Spec->splitdir($file);
@@ -154,8 +154,8 @@ END
 }
 
 sub get_meta {
-    my $pkg_name = '';
-    my $pkg_ver = '';
+    my $dist_name = '';
+    my $dist_ver = '';
     if (-f 'META.yml') {
         open META, "META.yml"
           or croak "Can't open META.yml for input:\n$!\n";
@@ -163,10 +163,10 @@ sub get_meta {
         my $meta = <META>;
         close META;
         if ($meta =~ /^name\s*:\s+(\S+)$/m) {
-            $pkg_name = $1;
+            $dist_name = $1;
         }
         if ($meta =~ /^version\s*:\s+(\S+)$/m) {
-            $pkg_ver = $1;
+            $dist_ver = $1;
         }
     }
     else {
@@ -177,20 +177,20 @@ sub get_meta {
             my $makefile = <MAKEFILE>;
             close MAKEFILE;
             if ($makefile =~ /^DISTNAME\s*=\s*(\S+)$/m) {
-                $pkg_name = $1;
+                $dist_name = $1;
             }
             if ($makefile =~ /^VERSION\s*=\s*(\S+)$/m) {
-                $pkg_ver = $1;
+                $dist_ver = $1;
             }
         }
     }
-    croak <<END unless length($pkg_ver);
+    croak <<END unless length($dist_ver);
 Can't determine the version for this install. Please specify manually:
 
     perl -Monly=install - version=1.23
 
 END
-    return ($pkg_name, $pkg_ver);
+    return ($dist_name, $dist_ver);
 }
 
 1;
@@ -218,10 +218,10 @@ only::install - Install multiple versions of modules
 This module provides the programmer's API for installing multiple
 versions of a module. There is only one exportable function: C<install>.
 
-In order to install, you must be chdir()ed into a valid module package
-directory, and C<make> or C<./Build> must already have been run. More
-specifically, there must be a C<blib> directory and either a C<Makefile>
-or a C<META.yml> file.
+In order to install, you must be chdir()ed into a valid module
+distribution directory, and C<make> or C<./Build> must already have been
+run. More specifically, there must be a C<blib> directory and either a
+C<Makefile> or a C<META.yml> file.
 
 =head1 ARGUMENTS
 
@@ -229,14 +229,15 @@ or a C<META.yml> file.
 
 =item * version
 
-The version parameter talls C<install> which version to install the
-package modules under. You normally don't need this, since C<install>
-can extrapolate the vaule from the Makefile or from the META.yml file.
+The version parameter tells C<install> which version to install the
+distribution modules under. You normally don't need this, since
+C<install> can extrapolate the vaule from the Makefile or from the
+META.yml file.
 
 =item * versionlib
 
-The versionlib parameter tells where to install the package contents.
-The default is stored in C<only::config>.
+The versionlib parameter tells where to install the distribution
+contents. The default is stored in C<only::config>.
 
 =back
 

@@ -1,6 +1,6 @@
 package onlyTest;
 BEGIN { $^W = 1 }
-@EXPORT = qw(version_install site_install create_packages);
+@EXPORT = qw(version_install site_install create_distributions);
 
 use strict;
 use base 'Exporter';
@@ -15,7 +15,7 @@ use only::install qw(install);
 sub version_install {
     my ($dist, %args) = @_;
     my $home = Cwd::cwd();
-    chdir(File::Spec->catdir(t => packages => $dist)) or die $!;
+    chdir(File::Spec->catdir(t => distributions => $dist)) or die $!;
     install(%args);
     chdir($home) or die $!;
 }
@@ -24,7 +24,7 @@ sub site_install {
     my ($dist) = @_;
     my $home = Cwd::cwd();
     my $sitelib = File::Spec->rel2abs(File::Spec->catdir(qw(t site)));
-    chdir(File::Spec->catdir(t => packages => $dist)) or die $!;
+    chdir(File::Spec->catdir(t => distributions => $dist)) or die $!;
     my $lib = File::Spec->catdir(qw(blib lib));
     my $install_map = {
         $lib  => $sitelib,
@@ -38,22 +38,22 @@ sub site_install {
     chdir($home) or die $!;
 }
 
-sub create_packages {
+sub create_distributions {
     my ($spec) = @_;
-    for my $pkg_name (keys %$spec) {
-        my $pkg_spec = $spec->{$pkg_name};
-        for my $pkg_ver (keys %$pkg_spec) {
-            my $path = File::Spec->catdir('t', 'packages', 
-                                          "$pkg_name-$pkg_ver",
+    for my $dist_name (keys %$spec) {
+        my $dist_spec = $spec->{$dist_name};
+        for my $dist_ver (keys %$dist_spec) {
+            my $path = File::Spec->catdir('t', 'distributions', 
+                                          "$dist_name-$dist_ver",
                                          );
             mkpath($path);
-            if (int($pkg_ver * 100) % 2) {
+            if (int($dist_ver * 100) % 2) {
                 my $metafile = File::Spec->catfile($path, 'META.yml');
                 open META, '>', $metafile or die $!;
                 print META <<END;
 ---
-name: $pkg_name
-version: $pkg_ver
+name: $dist_name
+version: $dist_ver
 generated_by: onlyTest
 END
                 close META;
@@ -62,14 +62,14 @@ END
                 my $makefile = File::Spec->catfile($path, 'Makefile');
                 open MF, '>', $makefile or die $!;
                 print MF <<END;
-# Dummy Makefile for testing $pkg_name-$pkg_ver
-DISTNAME = $pkg_name
-VERSION = $pkg_ver
+# Dummy Makefile for testing $dist_name-$dist_ver
+DISTNAME = $dist_name
+VERSION = $dist_ver
 END
                 close MF;
             }
             
-            my $mod_spec = $pkg_spec->{$pkg_ver};
+            my $mod_spec = $dist_spec->{$dist_ver};
             for my $mod_name (keys %$mod_spec) {
                 my $lines = '';
                 my $mod_ver = $mod_spec->{$mod_name};

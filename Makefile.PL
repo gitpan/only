@@ -8,7 +8,7 @@ $NAME = 'only';
 $VERSION_FROM = 'lib/only.pm';
 @CLEAN_FILES = qw(
   lib/only/config.pm 
-  t/lib t/site t/packages t/version t/alternate
+  t/lib t/site t/distributions t/version t/alternate
   t/_Foo-Bar-0.55/blib/arch
   t/_Foo-Bar-0.50/blib/arch
   t/_Foo-Bar-0.60/blib/arch

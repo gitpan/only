@@ -5,7 +5,7 @@ use onlyTest;
 use File::Spec;
 no warnings 'once';
 
-create_packages
+create_distributions
 {
     '_Boom' =>
     {

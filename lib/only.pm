@@ -1,5 +1,5 @@
 package only;
-$VERSION = '0.20';
+$VERSION = '0.21';
 use strict;
 use 5.006001;
 use only::config;
@@ -16,11 +16,11 @@ sub import {
     goto &_install if @_ == 2 and $_[1] eq 'install';
     my $class = shift;
     my $args = {};
-    my $package = shift;
-    return unless defined $package and $package;
-    if (ref $package eq 'HASH') {
-        $args = $package;
-        $package = shift || '';
+    my $module = shift;
+    return unless defined $module and $module;
+    if (ref $module eq 'HASH') {
+        $args = $module;
+        $module = shift || '';
     }
     
     my (@sets, $s, $loaded);
@@ -35,14 +35,14 @@ sub import {
     }
 
     for my $set (@sets) {
-        $s = $class->new($args, $package, $set);
+        $s = $class->new($args, $module, $set);
         return unless defined $s;
         $loaded = $s->module_require and last;
     }
 
     if (not defined $INC{$s->canon_path}) {
-        eval "require " . $s->package;
-        $loaded = not($@) && $s->check_version($s->package->VERSION);
+        eval "require " . $s->module;
+        $loaded = not($@) && $s->check_version($s->module->VERSION);
     }
 
     if (not $loaded) {
@@ -52,25 +52,25 @@ sub import {
     my $import = $s->export
       or return;
 
-    @_ = ($s->package, @{$s->arguments});
+    @_ = ($s->module, @{$s->arguments});
     goto &$import;
 }
 
 my $versionlib_override = '';
 sub new {
-    my ($class, $args, $package, $set) = @_;
+    my ($class, $args, $module, $set) = @_;
     my ($condition, @arguments) = @$set;
     my $versionlib = $args->{versionlib} || 
                      $versionlib_override || 
                      &only::config::versionlib;
     if (defined $args->{versionlib} and
-        not $package
+        not $module
        ) {
         $versionlib_override = $args->{versionlib};
     }
-    return unless $package;
+    return unless $module;
     my $s = bless {}, $class;
-    $s->package($package || '');
+    $s->module($module || '');
     $s->condition($condition || '');
     $s->no_export(@arguments == 1 and
                   ref($arguments[0]) eq 'ARRAY' and
@@ -83,8 +83,8 @@ sub new {
     $s->versionlib($versionlib);
     $s->versionarch(File::Spec->catdir($versionlib, $Config{archname}));
 
-    $s->pkg_path(File::Spec->catdir(split '::', $s->package) . '.pm');
-    $s->canon_path(join('/',split('::', $s->package)).'.pm');
+    $s->mod_path(File::Spec->catdir(split '::', $s->module) . '.pm');
+    $s->canon_path(join('/',split('::', $s->module)).'.pm');
     $s->prev_inc_path('');
     $s->prev_canon_path('');
     $s
@@ -106,16 +106,16 @@ sub module_require {
 
     for my $version (sort { $b <=> $a } @versions) {
         my $path_lib = File::Spec->catfile($s->versionlib,  
-                                           $version, $s->pkg_path);
+                                           $version, $s->mod_path);
         my $path_arch = File::Spec->catfile($s->versionarch, 
-                                            $version, $s->pkg_path);
+                                            $version, $s->mod_path);
         for my $path ($path_lib, $path_arch) {
             if (-f $path) {
                 $s->require_version($version);
                 $s->other_modules($path);
                 unshift @INC, $s;
                 local $^W = 0;
-                eval "require " . $s->package;
+                eval "require " . $s->module;
                 croak "Trouble loading $path\n$@" if $@;
                 $s->correct_inc;
                 return 1;
@@ -126,36 +126,36 @@ sub module_require {
 }
 
 sub only::INC {
-    my ($s, $pkg_path) = @_;
+    my ($s, $module_path) = @_;
     $s->correct_inc;
-    return unless defined $s->other_modules->{$pkg_path};
+    return unless defined $s->other_modules->{$module_path};
 
     my $version = $s->require_version;
 
     my $path_lib  = File::Spec->catfile($s->versionlib,  
                                         $version, 
-                                        split('/', $pkg_path),
+                                        split('/', $module_path),
                                        );
     my $path_arch = File::Spec->catfile($s->versionarch, 
                                         $version, 
-                                        split('/', $pkg_path),
+                                        split('/', $module_path),
                                        );
     for my $path ($path_lib, $path_arch) {
         if (-f $path) {
             $s->prev_inc_path($path);
-            $s->prev_canon_path($pkg_path);
+            $s->prev_canon_path($module_path);
             $INC{$s->prev_canon_path} = 1;
             open my $fh, $path
               or die "Can't open $path for input\n";
             return $fh;
         }
     }
-    die "Can't load versioned $pkg_path\n";
+    die "Can't load versioned $module_path\n";
 }
 
 sub stringify {
     my ($s) = @_;
-    'only:' . $s->package . ':' . 
+    'only:' . $s->module . ':' . 
       File::Spec->catdir($s->versionlib, $s->require_version)
 }
 
@@ -171,7 +171,7 @@ sub correct_inc {
 sub get_loaded_version {
     my ($s) = @_;
     my $path = $INC{$s->canon_path};
-    my $version = $s->package->VERSION;
+    my $version = $s->module->VERSION;
     if ($path =~ s/\.pm$/\.yaml/ and -f $path) {
         open META, $path
           or croak "Can't open $path for input:\n$!";
@@ -244,7 +244,7 @@ sub check_version {
 sub export {
     my ($s) = @_;
     return if $s->no_export;
-    $s->package->can('import')
+    $s->module->can('import')
 }
 
 # Generic OO accessor
@@ -274,7 +274,7 @@ sub other_modules {
 sub module_not_found {
     use Data::Dumper;
     my ($s) = @_;
-    my $p = $s->package;
+    my $p = $s->module;
     if (defined $INC{$s->canon_path}) {
         my $v = $s->get_loaded_version;
         croak <<END;
@@ -282,7 +282,7 @@ Module '$p', version '$v' already loaded,
 but it does not meet the requirements of this 'use only ...'.
 END
     }
-    my $faux_inc = 'only:' . $s->package . ':' . $s->versionlib;
+    my $faux_inc = 'only:' . $s->module . ':' . $s->versionlib;
     my $inc = join "\n", map "  - $_", ($faux_inc, @INC);
     croak <<END;
 Can't locate desired version of $p in \@INC:
@@ -568,9 +568,9 @@ Your::Module, they will end up here:
 C<only.pm> is kind of like C<lib.pm> on Koolaid! Instead of adding a
 search path to C<@INC>, it adds a B<search object> to C<@INC>. This
 object is actually the C<only.pm> object itself. The object keeps track
-of all of the modules related to a given package installation, and takes
-responsibility for loading those modules. This is very important because
-if you say:
+of all of the modules related to a given module distribution
+installation, and takes responsibility for loading those modules. This
+is very important because if you say:
 
     use only Goodness => '0.23';
 

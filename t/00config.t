@@ -13,7 +13,7 @@ write_template('config.pm.template',
               );
 ok(-f File::Spec->catfile(qw(t lib only config.pm)));
 
-create_packages
+create_distributions
 {
     '_Foo-Bar' =>
     {
