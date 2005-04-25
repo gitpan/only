@@ -1,4 +1,4 @@
-#line 1 "inc/Module/Install/PERSONAL/only.pm - /Users/ingy/local/lib/perl5/site_perl/5.8.6/Module/Install/PERSONAL/only.pm"
+#line 1 "inc/Module/Install/PERSONAL/only.pm - /Users/ingy/lib/Module/Install/PERSONAL/only.pm"
 package Module::Install::PERSONAL::only;
 use Module::Install::Base; @ISA = qw(Module::Install::Base);
 

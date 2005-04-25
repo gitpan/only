@@ -1,6 +1,11 @@
 # Revision history for Perl extension only.
 
 ---
+version: 0.28
+date:    Mon Apr 25 08:09:01 PDT 2005
+cahnges:
+  - missing Makefile.PL due to SKIP error
+---
 version: 0.27
 date:    Tue Mar 15 08:52:11 PST 2005
 cahnges:
